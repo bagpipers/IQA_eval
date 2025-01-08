@@ -4,6 +4,7 @@ from torchvision import transforms
 from PIL import Image
 import os
 import pandas as pd
+import argparse
 
 class MetaIQAFeatureExtractor(nn.Module):
     def __init__(self, input_size=3*512*512, hidden_size=1024, output_size=512):
@@ -12,14 +13,16 @@ class MetaIQAFeatureExtractor(nn.Module):
 
         # First layer
         self.fc1 = nn.Linear(input_size, hidden_size)
-        self.relu1 = nn.LeakyReLU()
-        self.dropout1 = nn.Dropout(0.1)
+        self.bn1 = nn.BatchNorm1d(hidden_size)  # Batch Normalization
+        self.relu1 = nn.SiLU()  # Swish Activation
+        self.dropout1 = nn.Dropout(0.3)
 
         # Second layer with residual connection
         self.fc2 = nn.Linear(hidden_size, output_size)
-        self.residual_connection = nn.Linear(hidden_size, output_size)  # 調整用
-        self.relu2 = nn.LeakyReLU()
-        self.dropout2 = nn.Dropout(0.1)
+        self.residual_connection = nn.Linear(hidden_size, output_size)  # Adjust dimensions for residual connection
+        self.bn2 = nn.BatchNorm1d(output_size)  # Batch Normalization
+        self.relu2 = nn.SiLU()
+        self.dropout2 = nn.Dropout(0.3)
 
         # Output layer
         self.fc3 = nn.Linear(output_size, 1)
@@ -27,15 +30,17 @@ class MetaIQAFeatureExtractor(nn.Module):
 
     def forward(self, x):
         x = x.view(x.size(0), -1)  # Flatten input if necessary
-        
+
         # First layer
         out = self.fc1(x)
+        out = self.bn1(out)
         out = self.relu1(out)
         out = self.dropout1(out)
 
         # Second layer with residual connection
-        residual = self.residual_connection(out)  # サイズを一致させる
+        residual = self.residual_connection(out)  # Align dimensions for residual connection
         out = self.fc2(out)
+        out = self.bn2(out)
         out = self.relu2(out)
         out = self.dropout2(out)
         out += residual  # Add residual connection
@@ -44,7 +49,6 @@ class MetaIQAFeatureExtractor(nn.Module):
         out = self.fc3(out)
         out = self.sigmoid(out)
         return out
-
 
 # ディレクトリ内の画像ファイルを取得する関数
 def get_image_files(directory):
@@ -87,9 +91,14 @@ def evaluate_images_and_save_csv(model, image_files, root_dir, output_dir, devic
     print(f"Results saved to {output_csv}")
 
 if __name__ == "__main__":
-    # 評価対象の画像ディレクトリ
-    image_directory = "../IQA-PyTorch/datasets/koniq10k/1024x768"
-    output_directory = "./csv/"  # 出力ディレクトリを指定
+    # コマンドライン引数の解析
+    parser = argparse.ArgumentParser(description="Evaluate image quality and save results to CSV.")
+    parser.add_argument("image_directory", type=str, help="Directory containing the images to evaluate.")
+    parser.add_argument("output_directory", type=str, help="Directory to save the output CSV file.")
+
+    args = parser.parse_args()
+    image_directory = args.image_directory
+    output_directory = args.output_directory
 
     # 出力ディレクトリが存在しない場合は作成
     if not os.path.exists(output_directory):
